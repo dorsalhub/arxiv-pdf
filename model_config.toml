@@ -1,0 +1,37 @@
+# Dorsal Model Configuration
+# Documentation: https://docs.dorsalhub.com/models/config
+
+# --- BASIC CONFIG ---
+# The name of your Annotation Model class
+model_class = "ArxivPdf"
+
+# The schema which validates the model output
+schema_id = "dorsal/arxiv"
+
+# --- DEPENDENCIES ---
+# Define when this model should run.
+
+# Example 1 (media_type): Run on files with the `text/plain` media type
+[[dependencies]]
+type = "media_type"
+include = ["application/pdf"]
+
+# Example 2 (media_type): Run on any audio/video files except for Matroska video
+# [[dependencies]]
+# type = "media_type"
+# include = ["audio", "video", "text/plain"]
+# exclude = ["video/matroska"]
+
+# Example 3 (file extension): Run only on MS Office Docs
+# [[dependencies]]
+# type = "extension"
+# extensions = ["doc", "docx]
+
+# Example 4 (file size): Run only on files smaller than 100MB
+# [[dependencies]]
+# type = "file_size"
+# max_size = "100MB"
+
+# --- RUNTIME OPTIONS ---
+[options]
+# Pass keyword arguments to your model class `main` method
