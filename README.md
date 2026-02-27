@@ -4,7 +4,7 @@ A Dorsal inference model for identifying arXiv preprints and retrieving a struct
 
 This model hashes your local PDF and fetches metadata (Title, Authors, Abstract, Categories, etc.) from DorsalHub.
 
-Useful for:
+## Useful For
 
 - Identifying ArXiv PDFs
 - Generating citations (BibTeX or RIS)
