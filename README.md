@@ -90,7 +90,7 @@ pip install -e ".[dev]"
 pytest --cov=arxiv_pdf tests/
 ```
 
-Or via uv:
+Or via [`uv`](https://docs.astral.sh/uv/):
 ```bash
 uv run pytest
 ```
