@@ -1,6 +1,6 @@
 # Dorsal arXiv PDF
 
-A Dorsal inference model for identifying arXiv preprints and retrieving a structured metadata record from DorsalHub. 
+A Dorsal inference model for identifying [arXiv](https://arxiv.org/) preprints and retrieving a structured metadata record from DorsalHub. 
 
 This model hashes your local PDF and fetches metadata (Title, Authors, Abstract, Categories, etc.) from DorsalHub.
 
