@@ -1,4 +1,4 @@
-# Dorsal ArXiv PDF
+# Dorsal arXiv PDF
 
 A Dorsal inference model for identifying arXiv preprints and retrieving a structured metadata record from DorsalHub. 
 
@@ -6,7 +6,7 @@ This model hashes your local PDF and fetches metadata (Title, Authors, Abstract,
 
 ## Useful For
 
-- Identifying ArXiv PDFs
+- Identifying arXiv PDFs
 - Generating citations (BibTeX or RIS)
 
 ## Compatibility
