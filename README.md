@@ -77,21 +77,6 @@ As Transformers have become state-of-the-art models for natural language...
 
 ```
 
-## Output
-
-This model produces a file annotation conforming to the `dorsal/arxiv` schema:
-
-* **Schema ID:** `dorsal/arxiv` (v0.5.0)
-* **Key Fields:**
-* `arxiv_id`: The canonical arXiv identifier (e.g., `2405.06604v1`).
-* `title`: The official title of the publication.
-* `authors`: An array of author strings.
-* `abstract`: The full text of the abstract.
-* `categories`: An array of arXiv categories (e.g., `cs.AI`).
-* `doi`: The DOI, if available.
-* `url`: The canonical link to the paper on arXiv.org.
-
-
 
 ## Development
 
