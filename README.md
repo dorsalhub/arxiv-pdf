@@ -1,8 +1,12 @@
 # Dorsal ArXiv PDF
 
-A Dorsal inference model for identifying local arXiv preprints and retrieving their full metadata from the DorsalHub database. 
+A Dorsal inference model for identifying arXiv preprints and retrieving a structured metadata record from DorsalHub. 
 
-Instead of relying on brittle text-parsing or heavy layout models, this model hashes your local PDF and fetches metadata (Title, Authors, Abstract, Categories, etc.) from DorsalHub.
+This model hashes your local PDF and fetches metadata (Title, Authors, Abstract, Categories, etc.) from DorsalHub.
+
+Useful for:
+- Identifying ArXiv PDFs
+- Generating citations (BibTeX or RIS)
 
 ## Compatibility
 
@@ -15,7 +19,6 @@ Run the model directly against a local PDF file (downloads and installs if not a
 
 ```bash
 dorsal run dorsalhub/arxiv-pdf ./2405.06604v1.pdf
-
 ```
 
 ### Output Formats & Exporting
@@ -37,7 +40,6 @@ $ dorsal run dorsalhub/arxiv-pdf ./2405.06604v1.pdf --export=bibtex
   url = {[https://arxiv.org/abs/2405.06604](https://arxiv.org/abs/2405.06604)},
   year = {2024}
 }
-
 ```
 
 #### Example: Export a RIS (`ris`) citation:
@@ -55,7 +57,6 @@ KW  - cs.LG
 UR  - [https://arxiv.org/abs/2405.06604](https://arxiv.org/abs/2405.06604)
 M3  - 2405.06604
 ER  - 
-
 ```
 
 #### Example: Export to Markdown (`md`):
@@ -74,7 +75,6 @@ categories: [cs.CL, cs.LG]
 
 ## Abstract
 As Transformers have become state-of-the-art models for natural language...
-
 ```
 
 
@@ -87,7 +87,6 @@ This repository uses `pytest` for unit testing with mocked API calls to ensure c
 ```bash
 pip install -e ".[dev]"
 pytest --cov=arxiv_pdf tests/
-
 ```
 
 Or via uv:
