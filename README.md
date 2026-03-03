@@ -24,8 +24,6 @@ dorsal run dorsalhub/arxiv-pdf ./2405.06604v1.pdf
 
 ### Output Formats & Exporting
 
-By default, the CLI outputs a beautiful, formatted table summarizing the paper, and saves a validated JSON record to the current working directory.
-
 You can export to a number of formats from the CLI:
 
 #### Example: Export to BibTeX (`bibtex`) citation:
@@ -83,10 +81,10 @@ As Transformers have become state-of-the-art models for natural language...
 
 ### Running Tests
 
-This repository uses `pytest` for unit testing with mocked API calls to ensure completely offline, deterministic test runs.
+We use `pytest` for unit testing.:
 
 ```bash
-dorsal model install .
+pip install -e ".[dev]"
 pytest --cov=arxiv_pdf tests/
 ```
 
