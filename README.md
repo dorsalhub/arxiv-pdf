@@ -7,12 +7,12 @@ This model hashes your local PDF and fetches structured metadata (Title, Authors
 ## Useful For
 
 - Identifying arXiv PDFs
-- Generating citations (BibTeX or RIS)
+- Generating citations
 
 ## Compatibility
 
 * **Python:** 3.11, 3.12, 3.13, 3.14
-* **Dependencies:** Requires `dorsalhub` and `dorsalhub-adapters>=0.3.0`.
+* **Dependencies:** Requires `dorsalhub`.
 
 ## Quick Start
 
@@ -86,7 +86,7 @@ As Transformers have become state-of-the-art models for natural language...
 This repository uses `pytest` for unit testing with mocked API calls to ensure completely offline, deterministic test runs.
 
 ```bash
-pip install -e ".[dev]"
+dorsal model install .
 pytest --cov=arxiv_pdf tests/
 ```
 
