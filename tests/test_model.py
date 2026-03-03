@@ -14,13 +14,18 @@
 
 import pathlib
 import tomllib
+import uuid
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from dorsal.testing import run_model
 from arxiv_pdf.model import ArxivPdf
 
-# Load the project configuration
+from dorsal.file.validators.file_record import FileRecord, AnnotationStub
+from dorsal.client.validators import FileAnnotationResponse
+from dorsal.file.configs.model_runner import RunModelResult
+from dorsal.common.exceptions import NotFoundError
+
 root = pathlib.Path(__file__).parent.parent
 with open(root / "model_config.toml", "rb") as f:
     config = tomllib.load(f)
@@ -28,116 +33,280 @@ with open(root / "model_config.toml", "rb") as f:
 
 @pytest.fixture
 def dummy_pdf(tmp_path):
-    """
-    Creates a temporary file with valid PDF magic bytes.
-    This ensures Dorsal's libmagic pre-flight check detects it as 'application/pdf'
-    and passes the media_type dependency check.
-    """
     file_path = tmp_path / "dummy_paper.pdf"
     file_path.write_bytes(b"%PDF-1.4\n%EOF\n")
     return str(file_path)
 
 
+class FakeAnnotations:
+    def __init__(self, schemas):
+        self.schemas = schemas
+
+    def __iter__(self):
+        return iter(self.schemas)
+
+
+def create_mock_file_record(has_arxiv=True):
+    if has_arxiv:
+        stub = AnnotationStub.model_construct(id=uuid.uuid4())
+        annotations = FakeAnnotations([("file_base", []), ("dorsal/arxiv", [stub])])
+    else:
+        annotations = FakeAnnotations([("file_base", [])])
+    return FileRecord.model_construct(annotations=annotations)
+
+
+def create_mock_pdf_result(title=None):
+    record = {"title": title} if title else {}
+    return RunModelResult.model_construct(record=record, error=None)
+
+
 @patch("arxiv_pdf.model.get_file_annotation")
 @patch("arxiv_pdf.model.identify_file")
-def test_arxiv_pdf_success(mock_identify_file, mock_get_annotation, dummy_pdf):
-    """Tests the happy path where a file is successfully identified and fetched."""
-
-    # 1. Setup the identify_file mock
-    mock_stub = MagicMock()
-    mock_stub.id = "fake-uuid-1234"
-
-    mock_file_record = MagicMock()
-    mock_file_record.annotations = [
-        ("file_base", [MagicMock()]),
-        ("dorsal/arxiv", [mock_stub]),  # The stub we are looking for
-    ]
-    mock_identify_file.return_value = mock_file_record
-
-    # 2. Setup the get_file_annotation mock
-    mock_full_annotation = MagicMock()
-    mock_full_annotation.record = {
-        "arxiv_id": "2405.06604v1",
-        "title": "A Great Paper",
-        "abstract": "This is a great abstract.",
-        "authors": ["Alice", "Bob"],
-    }
-    mock_get_annotation.return_value = mock_full_annotation
-
-    # Run the model using the dynamically generated dummy PDF
-    result = run_model(
-        annotation_model=ArxivPdf,
-        file_path=dummy_pdf,
-        schema_id=config["schema_id"],
-        validation_model=config.get("validation_model"),
-        dependencies=config.get("dependencies"),
-        options=config.get("options"),
+def test_arxiv_pdf_binary_hit(mock_identify, mock_get_ann, dummy_pdf):
+    """Tests the fast path: exact binary match."""
+    mock_identify.return_value = create_mock_file_record(has_arxiv=True)
+    mock_get_ann.return_value = FileAnnotationResponse.model_construct(
+        record={"arxiv_id": "2405.06604v1", "title": "A Great Paper"}
     )
 
-    # Assertions
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+
     assert result.error is None
-    assert result.record is not None
     assert result.record["arxiv_id"] == "2405.06604v1"
-    assert result.record["title"] == "A Great Paper"
+
+
+@patch("arxiv_pdf.model.get_file_annotation")
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_title_fallback(
+    mock_identify, mock_run_model, mock_get_record, mock_get_ann, dummy_pdf
+):
+    """Tests fallback to virtual hash via PDF title."""
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(
+        title="arXiv:astro-ph/9912160v1"
+    )
+
+    mock_get_record.return_value = create_mock_file_record(has_arxiv=True)
+    mock_get_ann.return_value = FileAnnotationResponse.model_construct(
+        record={"arxiv_id": "astro-ph/9912160"}
+    )
+
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+
+    assert result.error is None
+    assert result.record["arxiv_id"] == "astro-ph/9912160"
+    mock_get_record.assert_called_once()
+
+
+@patch("arxiv_pdf.model.get_file_annotation")
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_filename_fallback(
+    mock_identify, mock_run_model, mock_get_record, mock_get_ann, tmp_path
+):
+    """Tests fallback to virtual hash via filename."""
+    file_path = tmp_path / "2405.06604v1.pdf"
+    file_path.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(title=None)
+
+    mock_get_record.return_value = create_mock_file_record(has_arxiv=True)
+    mock_get_ann.return_value = FileAnnotationResponse.model_construct(
+        record={"arxiv_id": "2405.06604"}
+    )
+
+    result = run_model(ArxivPdf, str(file_path), schema_id=config["schema_id"])
+
+    assert result.error is None
+    assert result.record["arxiv_id"] == "2405.06604"
+    mock_get_record.assert_called_once()
+
+
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_conflicting_heuristics(mock_identify, mock_run_model, tmp_path):
+    """Tests safe exit when title and filename disagree."""
+    file_path = tmp_path / "2405.06604v1.pdf"
+    file_path.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1706.03762v1")
+
+    result = run_model(ArxivPdf, str(file_path), schema_id=config["schema_id"])
+
+    assert result.record is None
+    assert "Conflicting arXiv IDs found" in result.error
 
 
 @patch("arxiv_pdf.model.identify_file")
-def test_arxiv_pdf_identify_api_failure(mock_identify_file, dummy_pdf):
-    """Tests the model gracefully handling an API crash during identification."""
-
-    mock_identify_file.side_effect = Exception("Dorsal API is offline")
+def test_arxiv_pdf_strict_mode(mock_identify, dummy_pdf):
+    """Tests that strict mode prevents heuristic fallbacks."""
+    mock_identify.side_effect = NotFoundError("No binary match")
 
     result = run_model(
-        annotation_model=ArxivPdf,
-        file_path=dummy_pdf,
-        schema_id=config["schema_id"],
+        ArxivPdf, dummy_pdf, schema_id=config["schema_id"], options={"strict": True}
     )
 
     assert result.record is None
-    assert result.error is not None
-    assert "Failed to identify file with DorsalHub API" in result.error
+    assert "Strict mode enabled" in result.error
 
 
 @patch("arxiv_pdf.model.identify_file")
-def test_arxiv_pdf_no_arxiv_record(mock_identify_file, dummy_pdf):
-    """Tests the model correctly rejecting a file that exists but lacks arxiv metadata."""
+def test_arxiv_pdf_api_failure_handled(mock_identify, dummy_pdf):
+    """Tests that an unexpected API crash is safely handled."""
+    mock_identify.side_effect = Exception("API is completely offline")
 
-    mock_file_record = MagicMock()
-    mock_file_record.annotations = [("file_base", [MagicMock()]), ("dorsal/arxiv", [])]
-    mock_identify_file.return_value = mock_file_record
-
-    result = run_model(
-        annotation_model=ArxivPdf,
-        file_path=dummy_pdf,
-        schema_id=config["schema_id"],
-    )
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
 
     assert result.record is None
-    assert result.error is not None
-    assert "No dorsal/arxiv annotation found for this file" in result.error
+    assert "API is completely offline" in result.error
+
+
+@patch("arxiv_pdf.model.get_file_annotation")
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_no_filename(
+    mock_identify, mock_run_model, mock_get_record, mock_get_ann, dummy_pdf
+):
+    """Tests fallback behavior when the file has no valid name."""
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1234.56789v1")
+    mock_get_record.return_value = create_mock_file_record(has_arxiv=True)
+    mock_get_ann.return_value = FileAnnotationResponse.model_construct(
+        record={"arxiv_id": "1234.56789"}
+    )
+
+    with patch("arxiv_pdf.model.ArxivPdf.name", create=True) as mock_name:
+        mock_name.return_value = None
+        result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+
+        assert result.error is None
+        assert result.record["arxiv_id"] == "1234.56789"
 
 
 @patch("arxiv_pdf.model.get_file_annotation")
 @patch("arxiv_pdf.model.identify_file")
+@patch("arxiv_pdf.model.run_model")
 def test_arxiv_pdf_fetch_annotation_failure(
-    mock_identify_file, mock_get_annotation, dummy_pdf
+    mock_run_model, mock_identify, mock_get_ann, dummy_pdf
 ):
-    """Tests the model gracefully handling a failure when fetching the full record."""
+    """Tests gracefully handling an API crash when fetching the exact annotation."""
+    mock_identify.return_value = create_mock_file_record(has_arxiv=True)
 
-    mock_stub = MagicMock()
-    mock_stub.id = "fake-uuid-1234"
-    mock_file_record = MagicMock()
-    mock_file_record.annotations = [("dorsal/arxiv", [mock_stub])]
-    mock_identify_file.return_value = mock_file_record
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1234.56789v1")
+    mock_get_ann.side_effect = Exception("Database error")
 
-    mock_get_annotation.side_effect = Exception("Record deleted or unavailable")
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+    assert "Failed to fetch annotation" in result.error
 
-    result = run_model(
-        annotation_model=ArxivPdf,
-        file_path=dummy_pdf,
-        schema_id=config["schema_id"],
-    )
+
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_binary_hit_no_annotation_fallback_fails(
+    mock_identify, mock_run_model, tmp_path
+):
+    """Tests binary hit without arxiv data, falling back to heuristics which also fail."""
+    file_path = tmp_path / "random_file.pdf"
+    file_path.write_bytes(b"%PDF-1.4\n%EOF\n")
+
+    mock_identify.return_value = create_mock_file_record(has_arxiv=False)
+
+    mock_run_model.return_value = create_mock_pdf_result(title=None)
+
+    result = run_model(ArxivPdf, str(file_path), schema_id=config["schema_id"])
+    assert result.record is None
+    assert "Unable to infer arXiv ID" in result.error
+
+
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_virtual_hash_not_found(
+    mock_identify, mock_run_model, mock_get_record, dummy_pdf
+):
+    """Tests safe exit when virtual hash is not indexed on DorsalHub."""
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1234.56789v1")
+    mock_get_record.side_effect = NotFoundError("Not on DorsalHub")
+
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+    assert "Virtual hash for ArXiv ID" in result.error
+
+
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_virtual_hash_api_error(
+    mock_identify, mock_run_model, mock_get_record, dummy_pdf
+):
+    """Tests safe exit when API crashes during virtual hash query."""
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1234.56789v1")
+    mock_get_record.side_effect = Exception("API Offline")
+
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+    assert "API Offline" in result.error
+
+
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_virtual_hash_missing_annotation(
+    mock_identify, mock_run_model, mock_get_record, dummy_pdf
+):
+    """Tests virtual hash hit, but it lacks the dorsal/arxiv annotation."""
+    mock_identify.side_effect = NotFoundError("No binary match")
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1234.56789v1")
+
+    mock_get_record.return_value = create_mock_file_record(has_arxiv=False)
+
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
+    assert "Virtual hash found, but lacks dorsal/arxiv annotation" in result.error
+
+
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_early_exit_no_filename(mock_identify):
+    """Tests that the model gracefully exits if the filename cannot be determined."""
+
+    mock_identify.side_effect = NotFoundError("No binary match")
+
+    model = ArxivPdf("/tmp/dummy_paper.pdf")
+    model.name = None
+
+    with patch.object(model, "log_debug") as mock_log:
+        with patch.object(
+            model, "extract_arxiv_id_from_pdf_title", return_value=(None, None)
+        ):
+            result = model.main()
+
+            assert result is None
+
+            mock_log.assert_any_call("Unable to determine filename")
+
+
+@patch("arxiv_pdf.model.get_file_annotation")
+@patch("arxiv_pdf.model.get_dorsal_file_record")
+@patch("arxiv_pdf.model.run_model")
+@patch("arxiv_pdf.model.identify_file")
+def test_arxiv_pdf_virtual_hash_annotation_fetch_failure(
+    mock_identify, mock_run_model, mock_get_record, mock_get_ann, dummy_pdf
+):
+    """Tests that an API crash during virtual hash annotation hydration preserves the error state."""
+
+    mock_identify.side_effect = NotFoundError("No binary match")
+
+    mock_run_model.return_value = create_mock_pdf_result(title="arXiv:1234.56789v1")
+
+    mock_get_record.return_value = create_mock_file_record(has_arxiv=True)
+
+    mock_get_ann.side_effect = Exception("Database error on virtual hash hydration")
+
+    result = run_model(ArxivPdf, dummy_pdf, schema_id=config["schema_id"])
 
     assert result.record is None
-    assert result.error is not None
-    assert "Failed to fetch full annotation fake-uuid-1234" in result.error
+    assert "Failed to fetch annotation" in result.error

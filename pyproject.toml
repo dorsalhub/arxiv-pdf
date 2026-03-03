@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dorsal-arxiv-pdf"
-version = "0.1.0"
+version = "0.2.0"
 description = "Dorsal model: arxiv-pdf"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,8 +17,7 @@ dev = [
     "pytest",
     "pytest-cov",
     "ruff",
-    "mypy",
-    "dorsalhub-adapters>=0.2.0"
+    "mypy"
 ]
 
 [project.entry-points."dorsal.models"]
