@@ -1,4 +1,4 @@
-# Dorsal arXiv PDF
+# arXiv PDF Info
 
 A Dorsal inference model for identifying [arXiv](https://arxiv.org/) preprints. 
 
